@@ -327,7 +327,8 @@ func status() {
 // MARK: main
 
 let args = Array(CommandLine.arguments.dropFirst())
-if !AXIsProcessTrusted() {
+// The prompt lists the app in System Settings → Accessibility, so granting is one switch.
+if !AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) {
     log("no Accessibility permission: add \(CommandLine.arguments[0]) in System Settings → Privacy & Security → Accessibility")
     exit(1)
 }
