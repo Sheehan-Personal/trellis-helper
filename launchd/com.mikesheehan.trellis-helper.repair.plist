@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.mikesheehan.trellis-helper.repair</string>
+  <key>ProgramArguments</key>
+  <array><string>BIN</string><string>repair</string><string>--wait</string><string>240</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>LOG</string>
+  <key>StandardErrorPath</key><string>LOG</string>
+</dict>
+</plist>
