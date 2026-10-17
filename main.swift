@@ -202,8 +202,9 @@ func snapshot(ifHealthy: Bool) {
     try! enc.encode(identities).write(to: dir.appendingPathComponent("identities.json"))
     let viewSessions = Set(identities.values.flatMap(\.values).filter { $0.bundle == "com.googlecode.iterm2" }.map(\.key))
     var folders: [String: String] = [:]
-    for line in tmux("list-sessions", "-F", "#{session_name}\t#{session_path}").split(separator: "\n") {
-        let f = line.split(separator: "\t").map(String.init)
+    // Space, not tab: under launchd there's no locale and tmux prints a tab as "_".
+    for line in tmux("list-sessions", "-F", "#{session_name} #{session_path}").split(separator: "\n") {
+        let f = line.split(separator: " ", maxSplits: 1).map(String.init)
         if f.count == 2, viewSessions.contains(f[0]) { folders[f[0]] = f[1] }
     }
     try! enc.encode(folders).write(to: dir.appendingPathComponent("tmux-sessions.json"))
