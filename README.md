@@ -17,5 +17,5 @@ numbers and relaunches TrellisWM.
 - **Repair** runs at login. It waits up to 4 minutes for windows to open, then relaunches TrellisWM.
 - Snapshots: `~/Library/Application Support/trellis-helper/snapshots/` (last 20).
   Log: `~/Library/Logs/trellis-helper.log`.
-- `./install.sh` builds into `~/.local/bin` and loads the agents. A rebuild needs Accessibility
-  granted again (System Settings → Privacy & Security → Accessibility).
+- `./install.sh` builds `~/Applications/TrellisHelper.app`, links `~/.local/bin/trellis-helper` to it and
+  loads the agents. Grant Accessibility to TrellisHelper.app; the grant is kept unless the binary changes.
