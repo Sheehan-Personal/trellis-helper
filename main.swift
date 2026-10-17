@@ -168,9 +168,15 @@ struct Snapshot {
 func unhealthyReason(_ latest: Snapshot) -> String? {
     for file in latest.identities.keys.sorted() {
         guard let old = latest.layout(file), let now = loadLayout(trellisDir.appendingPathComponent(file)) else { continue }
+        // Count only windows the snapshot could name; a view of windows that were already gone
+        // when it was taken (another display, an older session) can't be restored anyway.
+        let named = Set(latest.identities[file]?.keys.map { $0 } ?? [])
         let nowViews = viewWindows(now)
-        for (view, windows) in viewWindows(old) where (nowViews[view]?.count ?? 0) < windows.count {
-            return "view \(view) has \(nowViews[view]?.count ?? 0) of \(windows.count) windows"
+        for (view, windows) in viewWindows(old) {
+            let need = windows.filter(named.contains).count
+            if need > 0, (nowViews[view]?.count ?? 0) < need {
+                return "view \(view) has \(nowViews[view]?.count ?? 0) of \(need) windows"
+            }
         }
     }
     return nil
