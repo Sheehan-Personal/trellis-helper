@@ -326,10 +326,12 @@ func status() {
 
 // MARK: main
 
+setvbuf(stdout, nil, _IOLBF, 0)  // line-buffered, so the log shows each line as it happens
 let args = Array(CommandLine.arguments.dropFirst())
-// The prompt lists the app in System Settings → Accessibility, so granting is one switch.
-if !AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) {
-    log("no Accessibility permission: add \(CommandLine.arguments[0]) in System Settings → Privacy & Security → Accessibility")
+// Runs from iTerm's shell, so it uses iTerm's Accessibility grant (a launchd job needs its own,
+// and macOS wouldn't keep one for this ad-hoc-signed binary).
+if !AXIsProcessTrusted() {
+    log("no Accessibility permission: run from iTerm (System Settings → Privacy & Security → Accessibility)")
     exit(1)
 }
 switch args.first {
@@ -338,10 +340,19 @@ case "repair":
     let wait = args.firstIndex(of: "--wait").flatMap { args.indices.contains($0 + 1) ? TimeInterval(args[$0 + 1]) : nil } ?? 0
     repair(wait: wait, dryRun: args.contains("--dry-run"))
 case "status": status()
+case "login":
+    // Once per login, from the first iTerm shell: reattach views, then snapshot as TrellisWM saves.
+    // Every new iTerm shell starts this; the lock makes every copy after the first exit at once.
+    try? fm.createDirectory(at: snapshotsDir.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let lock = open(snapshotsDir.deletingLastPathComponent().appendingPathComponent("login.lock").path, O_CREAT | O_RDWR, 0o644)
+    guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else { exit(0) }
+    repair(wait: 240, dryRun: false)
+    while true { snapshot(ifHealthy: true); Thread.sleep(forTimeInterval: 15) }
 default:
     print("""
     usage: trellis-helper snapshot [--if-healthy]   save views + window names
            trellis-helper repair [--wait SECS] [--dry-run]   reattach views to today's windows
            trellis-helper status                    show each view and whether its windows are found
+           trellis-helper login                     repair, then keep snapshotting (started from ~/.zshrc)
     """)
 }
