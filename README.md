@@ -20,3 +20,21 @@ numbers and relaunches TrellisWM.
   purpose, run `trellis-helper snapshot` once.
 - Snapshots: `~/Library/Application Support/trellis-helper/snapshots/` (last 20).
   Log: `~/Library/Logs/trellis-helper.log`. Install or rebuild: `./install.sh`.
+
+## Plugging into an external display
+
+TrellisWM keeps one layout file per display and desktop, named
+`arrangement-<display id>|<desktop id>.json`. The helper snapshots and repairs every one of those
+files, not only the display you're looking at, so the views you saved with the external display
+attached are in the snapshots like any other.
+
+- **Plugging in or unplugging** doesn't close any window, and a window keeps its number when it moves
+  between screens, so there is nothing to repair. The views on each display's layout file stay as they were.
+- **After a restart with the display attached,** `repair` matches each view's windows by name (app,
+  Chrome profile, tmux session) and rewrites both displays' files, then relaunches TrellisWM.
+- **A view you saved on the external display** is picked up by the next 15-second snapshot. Run
+  `trellis-helper snapshot` to take it sooner.
+- **The unplugged display's views don't block snapshots.** The health check ignores windows the snapshot
+  couldn't name, so views on a display that isn't connected don't stop the laptop's views from being saved.
+- **Positions and sizes are TrellisWM's.** The helper restores which windows belong to which view,
+  not where they sit on the screen.
