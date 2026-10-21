@@ -1,0 +1,18 @@
+name: agent-wake
+
+# Wakes the agent orchestrator when Mike labels an issue agent-ready. The logic
+# lives in Sheehan-Personal/.github so one change reaches every repo.
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  wake:
+    if: >-
+      github.event.label.name == 'agent-ready' &&
+      github.event.sender.login == 'mikesheehan'
+    uses: Sheehan-Personal/.github/.github/workflows/agent-wake.yml@main
+    secrets: inherit
