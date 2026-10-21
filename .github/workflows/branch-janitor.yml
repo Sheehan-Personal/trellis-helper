@@ -1,0 +1,24 @@
+name: branch-janitor
+
+# Daily cleanup of dead agent branches and stale agent-working labels. The logic
+# lives in Sheehan-Personal/.github so one change reaches every repo.
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print what would change, change nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  janitor:
+    uses: Sheehan-Personal/.github/.github/workflows/branch-janitor.yml@main
+    with:
+      dry_run: ${{ inputs.dry_run || false }}
