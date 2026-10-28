@@ -171,7 +171,9 @@ func unhealthyReason(_ latest: Snapshot) -> String? {
         // Count only windows the snapshot could name; a view of windows that were already gone
         // when it was taken (another display, an older session) can't be restored anyway.
         let named = Set(latest.identities[file]?.keys.map { $0 } ?? [])
-        let nowViews = viewWindows(now)
+        // TrellisWM can leave a closed window in a view's framing; only an owned window is really there.
+        let owned = now["owners"] as? [String: String] ?? [:]
+        let nowViews = viewWindows(now).mapValues { $0.filter { owned[$0] != nil } }
         for (view, windows) in viewWindows(old) {
             let need = windows.filter(named.contains).count
             if need > 0, (nowViews[view]?.count ?? 0) < need {
@@ -268,9 +270,8 @@ func quitTrellis() {
     while !running(trellisBundle).isEmpty && Date() < deadline { Thread.sleep(forTimeInterval: 0.5) }
 }
 
-func repair(wait: TimeInterval, dryRun: Bool) {
-    guard let latest = Snapshot.latest() else { return log("repair: no snapshot yet; run `trellis-helper snapshot`") }
-    if !dryRun { ensureTerminals(latest) }
+/// File -> its snapshot rewritten to today's window numbers, plus a line per window that moved.
+func repairPlan(_ latest: Snapshot, wait: TimeInterval) -> (writes: [String: String], moves: [String]) {
     let deadline = Date().addingTimeInterval(wait)
     var plans: [String: [String: String?]] = [:]
     while true {
@@ -281,6 +282,7 @@ func repair(wait: TimeInterval, dryRun: Bool) {
         Thread.sleep(forTimeInterval: 5)
     }
     var writes: [String: String] = [:]
+    var moves: [String] = []
     var ghost = 900_000_000
     for (file, plan) in plans.sorted(by: { $0.key < $1.key }) {
         // Only a window that came back under a new number triggers repair; one still closed doesn't.
@@ -289,12 +291,24 @@ func repair(wait: TimeInterval, dryRun: Bool) {
         var map: [String: String] = [:]
         for (old, new) in plan.sorted(by: { $0.key < $1.key }) {
             if let new { map[old] = new } else { ghost += 1; map[old] = "w\(ghost)" }  // keep it from colliding with a reused number
-            if new != old { log("\(latest.identities[file]?[old]?.name ?? "?"): \(old) -> \(new ?? "not open")") }
+            if new != old { moves.append("\(latest.identities[file]?[old]?.name ?? "?"): \(old) -> \(new ?? "not open")") }
         }
         writes[file] = rewrite(text, map)
     }
+    return (writes, moves)
+}
+
+func repair(wait: TimeInterval, dryRun: Bool) {
+    guard let latest = Snapshot.latest() else { return log("repair: no snapshot yet; run `trellis-helper snapshot`") }
+    if !dryRun { ensureTerminals(latest) }
+    let (writes, moves) = repairPlan(latest, wait: wait)
+    moves.forEach(log)
     if writes.isEmpty { return log("repair: views are current") }
     if dryRun { return log("repair: dry run, \(writes.count) file(s) would change") }
+    apply(writes)
+}
+
+func apply(_ writes: [String: String]) {
     quitTrellis()
     for (file, text) in writes { try! text.write(to: trellisDir.appendingPathComponent(file), atomically: true, encoding: .utf8) }
     NSWorkspace.shared.openApplication(at: NSWorkspace.shared.urlForApplication(withBundleIdentifier: trellisBundle)!,
@@ -302,6 +316,23 @@ func repair(wait: TimeInterval, dryRun: Bool) {
     Thread.sleep(forTimeInterval: 5)
     log("repair: rewrote \(writes.count) file(s), relaunched TrellisWM")
     snapshot(ifHealthy: true)
+}
+
+/// Mid-session repair, for an app that restarts and reopens its windows under new numbers (an
+/// update). Silent unless it acts; doesn't open terminals or wait. `applied` keeps it from
+/// relaunching TrellisWM every tick when the snapshot after a repair is skipped.
+func reattach(_ applied: inout [String: String]) {
+    guard let latest = Snapshot.latest() else { return }
+    // Cheap test first: the AX and iTerm queries run only once a named window number is gone.
+    let open = Set((CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? [])
+        .compactMap { ($0[kCGWindowNumber as String] as? Int).map { "w\($0)" } })
+    guard latest.identities.values.contains(where: { !$0.keys.allSatisfy(open.contains) }) else { return }
+    let (writes, moves) = repairPlan(latest, wait: 0)
+    guard !writes.isEmpty, writes != applied else { return }
+    applied = writes
+    moves.forEach(log)
+    log("repair: a window came back under a new number")
+    apply(writes)
 }
 
 // MARK: status
@@ -347,13 +378,15 @@ case "repair":
     repair(wait: wait, dryRun: args.contains("--dry-run"))
 case "status": status()
 case "login":
-    // Once per login, from the first iTerm shell: reattach views, then snapshot as TrellisWM saves.
+    // Once per login, from the first iTerm shell: reattach views, then snapshot as TrellisWM saves,
+    // reattaching first if an app restarted since.
     // Every new iTerm shell starts this; the lock makes every copy after the first exit at once.
     try? fm.createDirectory(at: snapshotsDir.deletingLastPathComponent(), withIntermediateDirectories: true)
     let lock = open(snapshotsDir.deletingLastPathComponent().appendingPathComponent("login.lock").path, O_CREAT | O_RDWR, 0o644)
     guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else { exit(0) }
     repair(wait: 240, dryRun: false)
-    while true { snapshot(ifHealthy: true); Thread.sleep(forTimeInterval: 15) }
+    var applied: [String: String] = [:]
+    while true { reattach(&applied); snapshot(ifHealthy: true); Thread.sleep(forTimeInterval: 15) }
 default:
     print("""
     usage: trellis-helper snapshot [--if-healthy]   save views + window names
