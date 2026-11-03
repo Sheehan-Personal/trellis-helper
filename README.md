@@ -29,8 +29,11 @@ TrellisWM keeps one layout file per display and desktop, named
 files, not only the display you're looking at, so the views you saved with the external display
 attached are in the snapshots like any other.
 
-- **Plugging in or unplugging** doesn't close any window, and a window keeps its number when it moves
-  between screens, so there is nothing to repair. The views on each display's layout file stay as they were.
+- **Views follow you between displays.** TrellisWM keeps separate views per display, so views saved
+  undocked would never reach the dock's display. The helper notes when each display's views are edited,
+  and when you dock or undock and only one display is left on, it gives that display the views edited
+  most recently on the other, then relaunches TrellisWM once. With the lid open and docked (two displays
+  on) it copies nothing, so each screen keeps its own views. State: `~/Library/Application Support/trellis-helper/views-seen.json`.
 - **After a restart with the display attached,** `repair` matches each view's windows by name (app,
   Chrome profile, tmux session) and rewrites both displays' files, then relaunches TrellisWM.
 - **A view you saved on the external display** is picked up by the next 15-second snapshot. Run
