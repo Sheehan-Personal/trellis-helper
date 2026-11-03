@@ -319,17 +319,19 @@ func apply(_ writes: [String: String]) {
 }
 
 /// Mid-session repair, for an app that restarts and reopens its windows under new numbers (an
-/// update). Silent unless it acts; doesn't open terminals or wait. `applied` keeps it from
-/// relaunching TrellisWM every tick when the snapshot after a repair is skipped.
-func reattach(_ applied: inout [String: String]) {
+/// update). Silent unless it acts; doesn't open terminals or wait. `applied` holds the snapshot it
+/// last repaired from: one relaunch per snapshot, because while snapshots are skipped every new
+/// window looks like a fresh move and would relaunch TrellisWM each tick (2026-11-03).
+func reattach(_ applied: inout String) {
     guard let latest = Snapshot.latest() else { return }
     // Cheap test first: the AX and iTerm queries run only once a named window number is gone.
     let open = Set((CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? [])
         .compactMap { ($0[kCGWindowNumber as String] as? Int).map { "w\($0)" } })
     guard latest.identities.values.contains(where: { !$0.keys.allSatisfy(open.contains) }) else { return }
+    guard latest.dir.lastPathComponent != applied else { return }
     let (writes, moves) = repairPlan(latest, wait: 0)
-    guard !writes.isEmpty, writes != applied else { return }
-    applied = writes
+    guard !writes.isEmpty else { return }
+    applied = latest.dir.lastPathComponent
     moves.forEach(log)
     log("repair: a window came back under a new number")
     apply(writes)
@@ -385,7 +387,7 @@ case "login":
     let lock = open(snapshotsDir.deletingLastPathComponent().appendingPathComponent("login.lock").path, O_CREAT | O_RDWR, 0o644)
     guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else { exit(0) }
     repair(wait: 240, dryRun: false)
-    var applied: [String: String] = [:]
+    var applied = ""
     while true { reattach(&applied); snapshot(ifHealthy: true); Thread.sleep(forTimeInterval: 15) }
 default:
     print("""
