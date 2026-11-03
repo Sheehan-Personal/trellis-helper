@@ -337,6 +337,68 @@ func reattach(_ applied: inout String) {
     apply(writes)
 }
 
+// MARK: display sync
+
+let viewsSeenFile = appSupport.appendingPathComponent("trellis-helper/views-seen.json")
+
+/// A layout file's views as last seen, and when they were last edited on their own display.
+struct ViewsSeen: Codable { var framings: String; var edited: Date }
+
+/// UUIDs of the connected displays; TrellisWM names each layout file after one.
+func activeDisplays() -> Set<String> {
+    var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+    var n: UInt32 = 0
+    CGGetActiveDisplayList(16, &ids, &n)
+    return Set(ids.prefix(Int(n)).compactMap { CGDisplayCreateUUIDFromDisplayID($0)?.takeRetainedValue() }
+        .map { CFUUIDCreateString(nil, $0) as String })
+}
+
+/// "arrangement-<display>|<desktop>.json" -> (display, desktop).
+func fileDisplay(_ file: String) -> (display: String, desktop: String)? {
+    let parts = file.dropFirst("arrangement-".count).dropLast(".json".count).split(separator: "|").map(String.init)
+    return parts.count == 2 ? (parts[0], parts[1]) : nil
+}
+
+func framingsKey(_ layout: Layout) -> String {
+    (try? JSONSerialization.data(withJSONObject: layout["framings"] ?? [:], options: .sortedKeys))
+        .map { String(decoding: $0, as: UTF8.self) } ?? ""
+}
+
+/// TrellisWM keeps one layout per display, so views edited undocked never reach the dock's display
+/// (2026-11-03). Records when each display's views are edited, and when a dock or undock leaves one
+/// display connected, gives it the views edited most recently on another display of that desktop.
+/// Only a change made while the display set is steady counts as an edit: TrellisWM tidies the
+/// layout of a display it has just switched to, and that isn't Mike's edit.
+func syncDisplays(_ lastDisplays: inout Set<String>?) {
+    let displays = activeDisplays()
+    let steady = displays == lastDisplays
+    lastDisplays = displays
+    var seen = (try? Data(contentsOf: viewsSeenFile)).flatMap { try? JSONDecoder().decode([String: ViewsSeen].self, from: $0) } ?? [:]
+    let files = arrangementFiles(in: trellisDir)
+    for file in files {
+        guard let layout = loadLayout(trellisDir.appendingPathComponent(file)), let fd = fileDisplay(file) else { continue }
+        let key = framingsKey(layout)
+        guard seen[file]?.framings != key else { continue }
+        let edited = steady && displays.contains(fd.display) ? Date() : seen[file]?.edited ?? .distantPast
+        seen[file] = ViewsSeen(framings: key, edited: edited)
+    }
+    try? JSONEncoder().encode(seen).write(to: viewsSeenFile)
+    guard !steady, displays.count == 1, let display = displays.first else { return }
+    var writes: [String: String] = [:]
+    for file in files {
+        guard let fd = fileDisplay(file), fd.display == display, let mine = seen[file] else { continue }
+        let newer = files.filter { fileDisplay($0)?.desktop == fd.desktop && $0 != file }
+            .compactMap { other in seen[other].map { (other, $0) } }
+            .filter { $0.1.edited > mine.edited && $0.1.framings != mine.framings && $0.1.framings != "{}" }
+            .max { $0.1.edited < $1.1.edited }
+        guard let (source, _) = newer,
+              let text = try? String(contentsOf: trellisDir.appendingPathComponent(source), encoding: .utf8) else { continue }
+        writes[file] = text
+        log("sync: \(file) takes the views edited on \(fileDisplay(source)!.display)")
+    }
+    if !writes.isEmpty { apply(writes) }
+}
+
 // MARK: status
 
 func status() {
@@ -388,7 +450,11 @@ case "login":
     guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else { exit(0) }
     repair(wait: 240, dryRun: false)
     var applied = ""
-    while true { reattach(&applied); snapshot(ifHealthy: true); Thread.sleep(forTimeInterval: 15) }
+    var displays: Set<String>?  // nil, so the first tick treats the login as a dock or undock
+    while true {
+        syncDisplays(&displays); reattach(&applied); snapshot(ifHealthy: true)
+        Thread.sleep(forTimeInterval: 15)
+    }
 default:
     print("""
     usage: trellis-helper snapshot [--if-healthy]   save views + window names
